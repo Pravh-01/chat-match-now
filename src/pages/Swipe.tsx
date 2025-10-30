@@ -1,57 +1,102 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { useNavigate } from "react-router-dom";
-import { X, Heart, Video, MessageCircle, Settings } from "lucide-react";
-
-const MOCK_PROFILES = [
-  {
-    id: 1,
-    name: "Alex",
-    age: 24,
-    interests: ["Music", "Travel", "Art"],
-    bio: "Love exploring new places and meeting interesting people!",
-  },
-  {
-    id: 2,
-    name: "Sam",
-    age: 22,
-    interests: ["Gaming", "Coffee", "Books"],
-    bio: "Gamer by night, coffee enthusiast by day ☕",
-  },
-  {
-    id: 3,
-    name: "Jordan",
-    age: 26,
-    interests: ["Art", "Music", "Travel"],
-    bio: "Artist looking to connect with creative minds",
-  },
-];
+import { X, Heart, Video, MessageCircle, Settings, Users } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
+import { useMatching, Profile } from "@/hooks/useMatching";
+import { useOnlinePresence } from "@/hooks/useOnlinePresence";
+import { useToast } from "@/hooks/use-toast";
 
 const Swipe = () => {
+  const [profiles, setProfiles] = useState<Profile[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [direction, setDirection] = useState<"left" | "right" | null>(null);
+  const [userId, setUserId] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
   const navigate = useNavigate();
+  const { toast } = useToast();
+  const { findMatches, createMatch, skipProfile } = useMatching(userId || undefined);
+  const { onlineUsers, updateStatus } = useOnlinePresence(userId || undefined);
 
-  const currentProfile = MOCK_PROFILES[currentIndex];
+  useEffect(() => {
+    initializeUser();
+  }, []);
 
-  const handleSwipe = (swipeDirection: "left" | "right") => {
+  const initializeUser = async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    
+    if (!user) {
+      navigate('/auth');
+      return;
+    }
+
+    setUserId(user.id);
+    
+    // Check if profile exists
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', user.id)
+      .maybeSingle();
+
+    if (!profile) {
+      navigate('/profile-setup');
+      return;
+    }
+
+    // Load matches
+    await loadMatches();
+    setIsLoading(false);
+  };
+
+  const loadMatches = async () => {
+    const matches = await findMatches();
+    setProfiles(matches);
+  };
+
+  const handleSwipe = async (swipeDirection: "left" | "right") => {
+    const currentProfile = profiles[currentIndex];
+    if (!currentProfile) return;
+
     setDirection(swipeDirection);
-    setTimeout(() => {
+    
+    setTimeout(async () => {
       if (swipeDirection === "right") {
-        // Simulate match - go to video chat
-        navigate("/video-chat");
+        await createMatch(currentProfile.id);
+        await updateStatus('in_call');
+        navigate(`/video-chat?room=${userId}-${currentProfile.id}&peer=${currentProfile.id}`);
       } else {
+        await skipProfile(currentProfile.id);
         setDirection(null);
-        if (currentIndex < MOCK_PROFILES.length - 1) {
+        if (currentIndex < profiles.length - 1) {
           setCurrentIndex(currentIndex + 1);
         } else {
+          await loadMatches();
           setCurrentIndex(0);
         }
       }
     }, 300);
   };
+
+  const handleVideoChat = async () => {
+    const currentProfile = profiles[currentIndex];
+    if (currentProfile) {
+      await updateStatus('in_call');
+      navigate(`/video-chat?room=${userId}-${currentProfile.id}&peer=${currentProfile.id}`);
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-background via-background to-secondary flex items-center justify-center">
+        <div className="text-2xl font-bold">Loading matches...</div>
+      </div>
+    );
+  }
+
+  const currentProfile = profiles[currentIndex];
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-background via-background to-secondary">
@@ -66,16 +111,22 @@ const Swipe = () => {
               ChatFlow
             </span>
           </div>
-          <Button variant="ghost" size="icon">
-            <Settings className="w-5 h-5" />
-          </Button>
+          <div className="flex items-center gap-4">
+            <Badge variant="secondary" className="text-sm px-3 py-1">
+              <Users className="w-4 h-4 mr-2 inline" />
+              {onlineUsers.length} online
+            </Badge>
+            <Button variant="ghost" size="icon">
+              <Settings className="w-5 h-5" />
+            </Button>
+          </div>
         </div>
       </header>
 
       {/* Main Content */}
       <div className="pt-24 pb-12 px-6 flex items-center justify-center min-h-screen">
         <div className="w-full max-w-md">
-          {currentProfile && (
+          {currentProfile ? (
             <Card
               className={`relative overflow-hidden border-2 border-border backdrop-blur-lg bg-card/90 transition-all duration-300 ${
                 direction === "left"
@@ -89,7 +140,7 @@ const Swipe = () => {
               <div className="h-96 bg-gradient-to-br from-primary/20 to-accent/20 flex items-center justify-center">
                 <div className="w-32 h-32 rounded-full bg-gradient-to-br from-primary to-accent flex items-center justify-center">
                   <span className="text-6xl text-white font-bold">
-                    {currentProfile.name.charAt(0)}
+                    {currentProfile.display_name.charAt(0).toUpperCase()}
                   </span>
                 </div>
               </div>
@@ -98,9 +149,8 @@ const Swipe = () => {
               <div className="p-6 space-y-4">
                 <div>
                   <h2 className="text-3xl font-bold">
-                    {currentProfile.name}, {currentProfile.age}
+                    {currentProfile.display_name}, {currentProfile.age}
                   </h2>
-                  <p className="text-muted-foreground mt-2">{currentProfile.bio}</p>
                 </div>
 
                 <div className="flex flex-wrap gap-2">
@@ -116,38 +166,53 @@ const Swipe = () => {
                 </div>
               </div>
             </Card>
+          ) : (
+            <div className="text-center py-20">
+              <p className="text-2xl font-bold mb-4">No more profiles!</p>
+              <p className="text-muted-foreground mb-6">Check back later for new matches</p>
+              <Button 
+                onClick={loadMatches}
+                className="bg-gradient-to-r from-primary to-accent"
+              >
+                Refresh Matches
+              </Button>
+            </div>
           )}
 
-          {/* Action Buttons */}
-          <div className="flex justify-center gap-6 mt-8">
-            <Button
-              size="lg"
-              variant="outline"
-              onClick={() => handleSwipe("left")}
-              className="w-16 h-16 rounded-full border-2 border-destructive/50 hover:bg-destructive/10"
-            >
-              <X className="w-8 h-8 text-destructive" />
-            </Button>
-            <Button
-              size="lg"
-              onClick={() => handleSwipe("right")}
-              className="w-20 h-20 rounded-full bg-gradient-to-r from-primary to-accent hover:opacity-90"
-            >
-              <Heart className="w-10 h-10" />
-            </Button>
-            <Button
-              size="lg"
-              variant="outline"
-              onClick={() => navigate("/video-chat")}
-              className="w-16 h-16 rounded-full border-2 border-primary/50 hover:bg-primary/10"
-            >
-              <MessageCircle className="w-8 h-8 text-primary" />
-            </Button>
-          </div>
+          {currentProfile && (
+            <>
+              {/* Action Buttons */}
+              <div className="flex justify-center gap-6 mt-8">
+                <Button
+                  size="lg"
+                  variant="outline"
+                  onClick={() => handleSwipe("left")}
+                  className="w-16 h-16 rounded-full border-2 border-destructive/50 hover:bg-destructive/10"
+                >
+                  <X className="w-8 h-8 text-destructive" />
+                </Button>
+                <Button
+                  size="lg"
+                  onClick={() => handleSwipe("right")}
+                  className="w-20 h-20 rounded-full bg-gradient-to-r from-primary to-accent hover:opacity-90"
+                >
+                  <Heart className="w-10 h-10" />
+                </Button>
+                <Button
+                  size="lg"
+                  variant="outline"
+                  onClick={handleVideoChat}
+                  className="w-16 h-16 rounded-full border-2 border-primary/50 hover:bg-primary/10"
+                >
+                  <MessageCircle className="w-8 h-8 text-primary" />
+                </Button>
+              </div>
 
-          <p className="text-center text-muted-foreground mt-8">
-            Swipe right to connect • Left to skip
-          </p>
+              <p className="text-center text-muted-foreground mt-8">
+                Swipe right to connect • Left to skip
+              </p>
+            </>
+          )}
         </div>
       </div>
     </div>

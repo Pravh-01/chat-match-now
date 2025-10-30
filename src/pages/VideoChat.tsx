@@ -1,19 +1,95 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { Video, VideoOff, Mic, MicOff, PhoneOff, MessageCircle, UserPlus, SkipForward } from "lucide-react";
+import { useWebRTC } from "@/hooks/useWebRTC";
+import { supabase } from "@/integrations/supabase/client";
+import { useOnlinePresence } from "@/hooks/useOnlinePresence";
+import { useToast } from "@/components/ui/use-toast";
 
 const VideoChat = () => {
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoOn, setIsVideoOn] = useState(true);
   const [showChat, setShowChat] = useState(false);
   const [message, setMessage] = useState("");
-  const [messages, setMessages] = useState<{ text: string; sender: "me" | "them" }[]>([
-    { text: "Hey! Nice to meet you!", sender: "them" },
-  ]);
+  const [messages, setMessages] = useState<{ text: string; sender: "me" | "them" }[]>([]);
+  const [userId, setUserId] = useState<string | null>(null);
+  const [peerName, setPeerName] = useState<string>("Stranger");
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const { toast } = useToast();
+  
+  const roomId = searchParams.get('room') || '';
+  const peerId = searchParams.get('peer') || '';
+  
+  const { localStream, remoteStream, isConnected, startCall, endCall, toggleAudio, toggleVideo } = 
+    useWebRTC(roomId, userId || '');
+  const { updateStatus } = useOnlinePresence(userId || undefined);
+  
+  const localVideoRef = useRef<HTMLVideoElement>(null);
+  const remoteVideoRef = useRef<HTMLVideoElement>(null);
+
+  useEffect(() => {
+    initializeChat();
+    
+    return () => {
+      handleEndCall();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (localVideoRef.current && localStream) {
+      localVideoRef.current.srcObject = localStream;
+    }
+  }, [localStream]);
+
+  useEffect(() => {
+    if (remoteVideoRef.current && remoteStream) {
+      remoteVideoRef.current.srcObject = remoteStream;
+    }
+  }, [remoteStream]);
+
+  const initializeChat = async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    
+    if (!user) {
+      navigate('/auth');
+      return;
+    }
+
+    setUserId(user.id);
+
+    // Get peer profile
+    if (peerId) {
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('display_name')
+        .eq('id', peerId)
+        .maybeSingle();
+
+      if (profile) {
+        setPeerName(profile.display_name);
+      }
+    }
+
+    // Start the call
+    try {
+      await startCall();
+      toast({
+        title: "Connected!",
+        description: "Video chat started",
+      });
+    } catch (error) {
+      console.error('Error starting call:', error);
+      toast({
+        title: "Connection Error",
+        description: "Failed to start video chat",
+        variant: "destructive",
+      });
+    }
+  };
 
   const handleSendMessage = (e: React.FormEvent) => {
     e.preventDefault();
@@ -23,8 +99,20 @@ const VideoChat = () => {
     }
   };
 
-  const handleEndCall = () => {
+  const handleEndCall = async () => {
+    endCall();
+    await updateStatus('online');
     navigate("/swipe");
+  };
+
+  const handleToggleAudio = () => {
+    const enabled = toggleAudio();
+    setIsMuted(!enabled);
+  };
+
+  const handleToggleVideo = () => {
+    const enabled = toggleVideo();
+    setIsVideoOn(enabled);
   };
 
   return (
@@ -34,30 +122,46 @@ const VideoChat = () => {
         <div className="grid md:grid-cols-2 gap-4">
           {/* Remote Video */}
           <Card className="relative aspect-video bg-secondary/50 border-2 border-border overflow-hidden group">
-            <div className="absolute inset-0 flex items-center justify-center">
-              <div className="w-32 h-32 rounded-full bg-gradient-to-br from-primary to-accent flex items-center justify-center animate-float">
-                <span className="text-6xl text-white font-bold">A</span>
+            {remoteStream ? (
+              <video
+                ref={remoteVideoRef}
+                autoPlay
+                playsInline
+                className="absolute inset-0 w-full h-full object-cover"
+              />
+            ) : (
+              <div className="absolute inset-0 flex items-center justify-center">
+                <div className="text-center">
+                  <div className="w-32 h-32 rounded-full bg-gradient-to-br from-primary to-accent flex items-center justify-center animate-float mb-4 mx-auto">
+                    <span className="text-6xl text-white font-bold">{peerName.charAt(0).toUpperCase()}</span>
+                  </div>
+                  <p className="text-muted-foreground">Waiting for {peerName}...</p>
+                </div>
               </div>
-            </div>
+            )}
             <div className="absolute top-4 left-4 bg-background/80 backdrop-blur-sm px-3 py-1 rounded-full">
-              <span className="text-sm font-medium">Alex, 24</span>
+              <span className="text-sm font-medium">{peerName}</span>
             </div>
             <div className="absolute top-4 right-4 flex gap-2">
-              <div className="w-3 h-3 rounded-full bg-green-500 animate-pulse" />
+              <div className={`w-3 h-3 rounded-full ${isConnected ? 'bg-green-500' : 'bg-yellow-500'} animate-pulse`} />
             </div>
           </Card>
 
           {/* Local Video */}
           <Card className="relative aspect-video bg-secondary/50 border-2 border-primary/30 overflow-hidden">
-            <div className="absolute inset-0 flex items-center justify-center">
-              {isVideoOn ? (
-                <div className="w-24 h-24 rounded-full bg-gradient-to-br from-accent to-primary flex items-center justify-center">
-                  <span className="text-5xl text-white font-bold">You</span>
-                </div>
-              ) : (
+            {localStream && isVideoOn ? (
+              <video
+                ref={localVideoRef}
+                autoPlay
+                playsInline
+                muted
+                className="absolute inset-0 w-full h-full object-cover mirror"
+              />
+            ) : (
+              <div className="absolute inset-0 flex items-center justify-center">
                 <div className="text-muted-foreground">Camera Off</div>
-              )}
-            </div>
+              </div>
+            )}
             <div className="absolute top-4 left-4 bg-background/80 backdrop-blur-sm px-3 py-1 rounded-full">
               <span className="text-sm font-medium">You</span>
             </div>
@@ -69,7 +173,7 @@ const VideoChat = () => {
           <Button
             size="lg"
             variant={isMuted ? "destructive" : "outline"}
-            onClick={() => setIsMuted(!isMuted)}
+            onClick={handleToggleAudio}
             className="w-14 h-14 rounded-full"
           >
             {isMuted ? <MicOff className="w-6 h-6" /> : <Mic className="w-6 h-6" />}
@@ -78,7 +182,7 @@ const VideoChat = () => {
           <Button
             size="lg"
             variant={isVideoOn ? "outline" : "destructive"}
-            onClick={() => setIsVideoOn(!isVideoOn)}
+            onClick={handleToggleVideo}
             className="w-14 h-14 rounded-full"
           >
             {isVideoOn ? <Video className="w-6 h-6" /> : <VideoOff className="w-6 h-6" />}

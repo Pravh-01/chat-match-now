@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { useNavigate } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
 import { Sparkles, Music, Gamepad2, Palette, Plane, Book, Coffee } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
 
 const INTERESTS = [
   { id: "music", label: "Music", icon: Music },
@@ -18,10 +19,23 @@ const INTERESTS = [
 ];
 
 const ProfileSetup = () => {
+  const [displayName, setDisplayName] = useState("");
   const [age, setAge] = useState("");
   const [selectedInterests, setSelectedInterests] = useState<string[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
   const { toast } = useToast();
+
+  useEffect(() => {
+    checkAuth();
+  }, []);
+
+  const checkAuth = async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      navigate('/auth');
+    }
+  };
 
   const toggleInterest = (interestId: string) => {
     setSelectedInterests(prev =>
@@ -31,22 +45,50 @@ const ProfileSetup = () => {
     );
   };
 
-  const handleContinue = () => {
-    if (!age || selectedInterests.length === 0) {
+  const handleContinue = async () => {
+    if (!displayName || !age || selectedInterests.length === 0) {
       toast({
         title: "Almost there!",
-        description: "Please enter your age and select at least one interest.",
+        description: "Please fill in all fields and select at least one interest.",
         variant: "destructive",
       });
       return;
     }
 
-    toast({
-      title: "Profile complete!",
-      description: "Let's start matching...",
-    });
+    setIsLoading(true);
 
-    setTimeout(() => navigate("/swipe"), 1000);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      
+      if (!user) {
+        throw new Error("Not authenticated");
+      }
+
+      const { error } = await supabase.from('profiles').insert({
+        id: user.id,
+        display_name: displayName,
+        age: parseInt(age),
+        interests: selectedInterests,
+      });
+
+      if (error) throw error;
+
+      toast({
+        title: "Profile created!",
+        description: "Welcome to ChatFlow",
+      });
+
+      navigate("/swipe");
+    } catch (error: any) {
+      console.error('Error creating profile:', error);
+      toast({
+        title: "Error",
+        description: error.message || "Failed to create profile",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -62,6 +104,18 @@ const ProfileSetup = () => {
           <CardDescription>Tell us a bit about yourself to find better matches</CardDescription>
         </CardHeader>
         <CardContent className="space-y-8">
+          <div className="space-y-2">
+            <Label htmlFor="name" className="text-lg">What's your name?</Label>
+            <Input
+              id="name"
+              type="text"
+              placeholder="Alex"
+              value={displayName}
+              onChange={(e) => setDisplayName(e.target.value)}
+              className="text-lg"
+            />
+          </div>
+
           <div className="space-y-2">
             <Label htmlFor="age" className="text-lg">How old are you?</Label>
             <Input
@@ -110,8 +164,9 @@ const ProfileSetup = () => {
           <Button
             onClick={handleContinue}
             className="w-full bg-gradient-to-r from-primary to-accent text-lg py-6"
+            disabled={isLoading}
           >
-            Start Matching
+            {isLoading ? "Creating Profile..." : "Start Matching"}
           </Button>
         </CardContent>
       </Card>

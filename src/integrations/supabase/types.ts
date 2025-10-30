@@ -14,7 +14,104 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      matches: {
+        Row: {
+          id: string
+          matched_at: string | null
+          status: string
+          user1_id: string
+          user2_id: string
+        }
+        Insert: {
+          id?: string
+          matched_at?: string | null
+          status?: string
+          user1_id: string
+          user2_id: string
+        }
+        Update: {
+          id?: string
+          matched_at?: string | null
+          status?: string
+          user1_id?: string
+          user2_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "matches_user1_id_fkey"
+            columns: ["user1_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "matches_user2_id_fkey"
+            columns: ["user2_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      online_users: {
+        Row: {
+          last_seen: string | null
+          status: string
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          last_seen?: string | null
+          status?: string
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          last_seen?: string | null
+          status?: string
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "online_users_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: true
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      profiles: {
+        Row: {
+          age: number
+          avatar_url: string | null
+          created_at: string | null
+          display_name: string
+          id: string
+          interests: string[]
+          updated_at: string | null
+        }
+        Insert: {
+          age: number
+          avatar_url?: string | null
+          created_at?: string | null
+          display_name: string
+          id: string
+          interests?: string[]
+          updated_at?: string | null
+        }
+        Update: {
+          age?: number
+          avatar_url?: string | null
+          created_at?: string | null
+          display_name?: string
+          id?: string
+          interests?: string[]
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never

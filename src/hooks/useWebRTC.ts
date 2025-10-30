@@ -8,10 +8,11 @@ export interface SignalData {
   to: string;
 }
 
-export const useWebRTC = (roomId: string, userId: string) => {
+export const useWebRTC = (roomId: string, userId: string, onChatMessage?: (message: string) => void) => {
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
   const [isConnected, setIsConnected] = useState(false);
+  const [peerId, setPeerId] = useState<string | null>(null);
   const peerConnection = useRef<RTCPeerConnection | null>(null);
   const signalChannel = useRef<any>(null);
 
@@ -52,8 +53,8 @@ export const useWebRTC = (roomId: string, userId: string) => {
 
     // Handle ICE candidates
     pc.onicecandidate = (event) => {
-      if (event.candidate && signalChannel.current) {
-        console.log('Sending ICE candidate');
+      if (event.candidate && signalChannel.current && peerId) {
+        console.log('Sending ICE candidate to peer:', peerId);
         signalChannel.current.send({
           type: 'broadcast',
           event: 'signal',
@@ -61,7 +62,7 @@ export const useWebRTC = (roomId: string, userId: string) => {
             type: 'ice-candidate',
             data: event.candidate,
             from: userId,
-            to: roomId,
+            to: peerId,
           },
         });
       }
@@ -75,7 +76,7 @@ export const useWebRTC = (roomId: string, userId: string) => {
 
     peerConnection.current = pc;
     return pc;
-  }, [roomId, userId]);
+  }, [userId, peerId]);
 
   const setupSignaling = useCallback(() => {
     const channel = supabase.channel(`room:${roomId}`);
@@ -84,54 +85,81 @@ export const useWebRTC = (roomId: string, userId: string) => {
       .on('broadcast', { event: 'signal' }, async (payload: any) => {
         const signal = payload.payload as SignalData;
         
-        if (signal.to !== userId && signal.from !== userId) return;
+        // Only process signals meant for this user
+        if (signal.to !== userId) return;
 
-        console.log('Received signal:', signal.type);
+        console.log('Received signal:', signal.type, 'from:', signal.from);
 
-        if (!peerConnection.current) return;
+        if (!peerConnection.current) {
+          console.error('No peer connection available');
+          return;
+        }
 
-        if (signal.type === 'offer') {
-          await peerConnection.current.setRemoteDescription(
-            new RTCSessionDescription(signal.data)
-          );
-          const answer = await peerConnection.current.createAnswer();
-          await peerConnection.current.setLocalDescription(answer);
-          
-          channel.send({
-            type: 'broadcast',
-            event: 'signal',
-            payload: {
-              type: 'answer',
-              data: answer,
-              from: userId,
-              to: signal.from,
-            },
-          });
-        } else if (signal.type === 'answer') {
-          await peerConnection.current.setRemoteDescription(
-            new RTCSessionDescription(signal.data)
-          );
-        } else if (signal.type === 'ice-candidate') {
-          await peerConnection.current.addIceCandidate(
-            new RTCIceCandidate(signal.data)
-          );
+        try {
+          if (signal.type === 'offer') {
+            console.log('Processing offer...');
+            setPeerId(signal.from); // Track who we're connecting with
+            await peerConnection.current.setRemoteDescription(
+              new RTCSessionDescription(signal.data)
+            );
+            const answer = await peerConnection.current.createAnswer();
+            await peerConnection.current.setLocalDescription(answer);
+            
+            console.log('Sending answer...');
+            channel.send({
+              type: 'broadcast',
+              event: 'signal',
+              payload: {
+                type: 'answer',
+                data: answer,
+                from: userId,
+                to: signal.from,
+              },
+            });
+          } else if (signal.type === 'answer') {
+            console.log('Processing answer...');
+            await peerConnection.current.setRemoteDescription(
+              new RTCSessionDescription(signal.data)
+            );
+          } else if (signal.type === 'ice-candidate') {
+            console.log('Adding ICE candidate...');
+            await peerConnection.current.addIceCandidate(
+              new RTCIceCandidate(signal.data)
+            );
+          }
+        } catch (error) {
+          console.error('Error handling signal:', error);
         }
       })
-      .subscribe();
+      .on('broadcast', { event: 'chat' }, (payload: any) => {
+        if (payload.payload.from !== userId && onChatMessage) {
+          console.log('Received chat message:', payload.payload.message);
+          onChatMessage(payload.payload.message);
+        }
+      })
+      .subscribe((status) => {
+        console.log('Channel subscription status:', status);
+      });
 
     signalChannel.current = channel;
-  }, [roomId, userId]);
+  }, [roomId, userId, onChatMessage]);
 
-  const startCall = useCallback(async () => {
+  const startCall = useCallback(async (targetPeerId: string) => {
     try {
+      console.log('Starting call with peer:', targetPeerId);
+      setPeerId(targetPeerId);
       const stream = await initializeMedia();
       const pc = createPeerConnection(stream);
       setupSignaling();
+
+      // Wait for channel to be ready
+      await new Promise((resolve) => setTimeout(resolve, 500));
 
       // Create and send offer
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
 
+      console.log('Sending offer to peer:', targetPeerId);
       signalChannel.current.send({
         type: 'broadcast',
         event: 'signal',
@@ -139,14 +167,14 @@ export const useWebRTC = (roomId: string, userId: string) => {
           type: 'offer',
           data: offer,
           from: userId,
-          to: roomId,
+          to: targetPeerId,
         },
       });
     } catch (error) {
       console.error('Error starting call:', error);
       throw error;
     }
-  }, [initializeMedia, createPeerConnection, setupSignaling, userId, roomId]);
+  }, [initializeMedia, createPeerConnection, setupSignaling, userId]);
 
   const joinCall = useCallback(async () => {
     try {
@@ -216,5 +244,14 @@ export const useWebRTC = (roomId: string, userId: string) => {
     endCall,
     toggleAudio,
     toggleVideo,
+    sendChatMessage: (message: string) => {
+      if (signalChannel.current) {
+        signalChannel.current.send({
+          type: 'broadcast',
+          event: 'chat',
+          payload: { message, from: userId },
+        });
+      }
+    },
   };
 };

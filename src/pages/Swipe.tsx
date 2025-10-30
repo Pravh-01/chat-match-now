@@ -64,9 +64,11 @@ const Swipe = () => {
     
     setTimeout(async () => {
       if (swipeDirection === "right") {
-        await createMatch(currentProfile.id);
-        await updateStatus('in_call');
-        navigate(`/video-chat?room=${userId}-${currentProfile.id}&peer=${currentProfile.id}`);
+        const roomId = await createMatch(currentProfile.id);
+        if (roomId) {
+          await updateStatus('in_call');
+          navigate(`/video-chat?room=${roomId}&peer=${currentProfile.id}`);
+        }
       } else {
         await skipProfile(currentProfile.id);
         setDirection(null);
@@ -82,9 +84,10 @@ const Swipe = () => {
 
   const handleVideoChat = async () => {
     const currentProfile = profiles[currentIndex];
-    if (currentProfile) {
+    if (currentProfile && userId) {
+      const roomId = [userId, currentProfile.id].sort().join('-');
       await updateStatus('in_call');
-      navigate(`/video-chat?room=${userId}-${currentProfile.id}&peer=${currentProfile.id}`);
+      navigate(`/video-chat?room=${roomId}&peer=${currentProfile.id}`);
     }
   };
 

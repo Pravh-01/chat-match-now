@@ -74,15 +74,16 @@ export const useMatching = (userId?: string) => {
     if (!userId) return null;
 
     try {
-      const { data, error } = await supabase
+      // Create a consistent room ID by sorting user IDs
+      const roomId = [userId, targetUserId].sort().join('-');
+
+      const { error } = await supabase
         .from('matches')
         .insert({
           user1_id: userId,
           user2_id: targetUserId,
           status: 'accepted',
-        })
-        .select()
-        .single();
+        });
 
       if (error) throw error;
 
@@ -91,7 +92,7 @@ export const useMatching = (userId?: string) => {
         description: 'You can now start a video chat',
       });
 
-      return data;
+      return roomId;
     } catch (error) {
       console.error('Error creating match:', error);
       toast({

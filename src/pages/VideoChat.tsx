@@ -24,8 +24,10 @@ const VideoChat = () => {
   const roomId = searchParams.get('room') || '';
   const peerId = searchParams.get('peer') || '';
   
-  const { localStream, remoteStream, isConnected, startCall, endCall, toggleAudio, toggleVideo } = 
-    useWebRTC(roomId, userId || '');
+  const { localStream, remoteStream, isConnected, startCall, endCall, toggleAudio, toggleVideo, sendChatMessage } = 
+    useWebRTC(roomId, userId || '', (message) => {
+      setMessages(prev => [...prev, { text: message, sender: "them" }]);
+    });
   const { updateStatus } = useOnlinePresence(userId || undefined);
   
   const localVideoRef = useRef<HTMLVideoElement>(null);
@@ -74,13 +76,15 @@ const VideoChat = () => {
       }
     }
 
-    // Start the call
+    // Start the call with the peer
     try {
-      await startCall();
-      toast({
-        title: "Connected!",
-        description: "Video chat started",
-      });
+      if (peerId) {
+        await startCall(peerId);
+        toast({
+          title: "Connecting...",
+          description: "Establishing video connection",
+        });
+      }
     } catch (error) {
       console.error('Error starting call:', error);
       toast({
@@ -93,8 +97,9 @@ const VideoChat = () => {
 
   const handleSendMessage = (e: React.FormEvent) => {
     e.preventDefault();
-    if (message.trim()) {
+    if (message.trim() && sendChatMessage) {
       setMessages([...messages, { text: message, sender: "me" }]);
+      sendChatMessage(message);
       setMessage("");
     }
   };

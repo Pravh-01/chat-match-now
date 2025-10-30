@@ -7,12 +7,13 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
-import { Video } from "lucide-react";
+import { Video, Mail, Lock, UserPlus, LogIn, Sparkles } from "lucide-react";
 
 const Auth = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const navigate = useNavigate();
   const { toast } = useToast();
 
@@ -49,6 +50,16 @@ const Auth = () => {
 
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    if (password !== confirmPassword) {
+      toast({
+        title: "Error",
+        description: "Passwords do not match",
+        variant: "destructive",
+      });
+      return;
+    }
+
     setIsLoading(true);
 
     try {
@@ -130,24 +141,36 @@ const Auth = () => {
           </div>
         </div>
 
-        <Card className="border-border backdrop-blur-lg bg-card/80 animate-fade-in">
-          <CardHeader>
-            <CardTitle className="text-2xl text-center">Welcome</CardTitle>
-            <CardDescription className="text-center">
-              Sign in or create an account to start connecting
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Tabs defaultValue="signin" className="w-full">
-              <TabsList className="grid w-full grid-cols-2">
-                <TabsTrigger value="signin">Sign In</TabsTrigger>
-                <TabsTrigger value="signup">Sign Up</TabsTrigger>
-              </TabsList>
-              
-              <TabsContent value="signin">
+        <Tabs defaultValue="signin" className="w-full">
+          <TabsList className="grid w-full grid-cols-2 mb-8">
+            <TabsTrigger value="signin" className="data-[state=active]:bg-primary data-[state=active]:text-white">
+              <LogIn className="w-4 h-4 mr-2" />
+              Sign In
+            </TabsTrigger>
+            <TabsTrigger value="signup" className="data-[state=active]:bg-accent data-[state=active]:text-white">
+              <UserPlus className="w-4 h-4 mr-2" />
+              Sign Up
+            </TabsTrigger>
+          </TabsList>
+          
+          <TabsContent value="signin" className="animate-fade-in">
+            <Card className="border-primary/20 backdrop-blur-lg bg-card/80">
+              <CardHeader className="space-y-3">
+                <div className="w-16 h-16 rounded-full bg-gradient-to-br from-primary/20 to-primary/10 flex items-center justify-center mx-auto">
+                  <LogIn className="w-8 h-8 text-primary" />
+                </div>
+                <CardTitle className="text-2xl text-center">Welcome Back</CardTitle>
+                <CardDescription className="text-center">
+                  Sign in to continue your connections
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
                 <form onSubmit={handleSignIn} className="space-y-4">
                   <div className="space-y-2">
-                    <Label htmlFor="signin-email">Email</Label>
+                    <Label htmlFor="signin-email" className="flex items-center gap-2">
+                      <Mail className="w-4 h-4" />
+                      Email
+                    </Label>
                     <Input
                       id="signin-email"
                       type="email"
@@ -155,10 +178,14 @@ const Auth = () => {
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
                       required
+                      className="h-12"
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="signin-password">Password</Label>
+                    <Label htmlFor="signin-password" className="flex items-center gap-2">
+                      <Lock className="w-4 h-4" />
+                      Password
+                    </Label>
                     <Input
                       id="signin-password"
                       type="password"
@@ -166,22 +193,39 @@ const Auth = () => {
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       required
+                      className="h-12"
                     />
                   </div>
                   <Button 
                     type="submit" 
-                    className="w-full bg-gradient-to-r from-primary to-accent"
+                    className="w-full h-12 bg-gradient-to-r from-primary to-primary/80 hover:from-primary/90 hover:to-primary/70 text-lg font-semibold"
                     disabled={isLoading}
                   >
                     {isLoading ? "Signing in..." : "Sign In"}
                   </Button>
                 </form>
-              </TabsContent>
-              
-              <TabsContent value="signup">
+              </CardContent>
+            </Card>
+          </TabsContent>
+          
+          <TabsContent value="signup" className="animate-fade-in">
+            <Card className="border-accent/20 backdrop-blur-lg bg-card/80">
+              <CardHeader className="space-y-3">
+                <div className="w-16 h-16 rounded-full bg-gradient-to-br from-accent/20 to-accent/10 flex items-center justify-center mx-auto">
+                  <Sparkles className="w-8 h-8 text-accent" />
+                </div>
+                <CardTitle className="text-2xl text-center">Create Account</CardTitle>
+                <CardDescription className="text-center">
+                  Join now and start making meaningful connections
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
                 <form onSubmit={handleSignUp} className="space-y-4">
                   <div className="space-y-2">
-                    <Label htmlFor="signup-email">Email</Label>
+                    <Label htmlFor="signup-email" className="flex items-center gap-2">
+                      <Mail className="w-4 h-4" />
+                      Email
+                    </Label>
                     <Input
                       id="signup-email"
                       type="email"
@@ -189,32 +233,53 @@ const Auth = () => {
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
                       required
+                      className="h-12"
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="signup-password">Password</Label>
+                    <Label htmlFor="signup-password" className="flex items-center gap-2">
+                      <Lock className="w-4 h-4" />
+                      Password
+                    </Label>
                     <Input
                       id="signup-password"
                       type="password"
-                      placeholder="••••••••"
+                      placeholder="At least 6 characters"
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       required
                       minLength={6}
+                      className="h-12"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="confirm-password" className="flex items-center gap-2">
+                      <Lock className="w-4 h-4" />
+                      Confirm Password
+                    </Label>
+                    <Input
+                      id="confirm-password"
+                      type="password"
+                      placeholder="Re-enter your password"
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      required
+                      minLength={6}
+                      className="h-12"
                     />
                   </div>
                   <Button 
                     type="submit" 
-                    className="w-full bg-gradient-to-r from-primary to-accent"
+                    className="w-full h-12 bg-gradient-to-r from-accent to-accent/80 hover:from-accent/90 hover:to-accent/70 text-lg font-semibold"
                     disabled={isLoading}
                   >
-                    {isLoading ? "Creating account..." : "Sign Up"}
+                    {isLoading ? "Creating account..." : "Create Account"}
                   </Button>
                 </form>
-              </TabsContent>
-            </Tabs>
-          </CardContent>
-        </Card>
+              </CardContent>
+            </Card>
+          </TabsContent>
+        </Tabs>
 
         <div className="text-center mt-6">
           <Button 

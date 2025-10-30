@@ -15,6 +15,8 @@ export const useWebRTC = (roomId: string, userId: string, onChatMessage?: (messa
   const [peerId, setPeerId] = useState<string | null>(null);
   const peerConnection = useRef<RTCPeerConnection | null>(null);
   const signalChannel = useRef<any>(null);
+  const iceCandidateQueue = useRef<RTCIceCandidate[]>([]);
+  const currentPeerId = useRef<string | null>(null);
 
   const configuration: RTCConfiguration = {
     iceServers: [
@@ -53,8 +55,8 @@ export const useWebRTC = (roomId: string, userId: string, onChatMessage?: (messa
 
     // Handle ICE candidates
     pc.onicecandidate = (event) => {
-      if (event.candidate && signalChannel.current && peerId) {
-        console.log('Sending ICE candidate to peer:', peerId);
+      if (event.candidate && signalChannel.current && currentPeerId.current) {
+        console.log('Sending ICE candidate to peer:', currentPeerId.current);
         signalChannel.current.send({
           type: 'broadcast',
           event: 'signal',
@@ -62,7 +64,7 @@ export const useWebRTC = (roomId: string, userId: string, onChatMessage?: (messa
             type: 'ice-candidate',
             data: event.candidate,
             from: userId,
-            to: peerId,
+            to: currentPeerId.current,
           },
         });
       }
@@ -76,7 +78,7 @@ export const useWebRTC = (roomId: string, userId: string, onChatMessage?: (messa
 
     peerConnection.current = pc;
     return pc;
-  }, [userId, peerId]);
+  }, [userId]);
 
   const setupSignaling = useCallback(() => {
     const channel = supabase.channel(`room:${roomId}`);
@@ -99,9 +101,18 @@ export const useWebRTC = (roomId: string, userId: string, onChatMessage?: (messa
           if (signal.type === 'offer') {
             console.log('Processing offer...');
             setPeerId(signal.from);
+            currentPeerId.current = signal.from;
             await peerConnection.current.setRemoteDescription(
               new RTCSessionDescription(signal.data)
             );
+            
+            // Process any queued ICE candidates
+            while (iceCandidateQueue.current.length > 0) {
+              const candidate = iceCandidateQueue.current.shift()!;
+              console.log('Adding queued ICE candidate');
+              await peerConnection.current.addIceCandidate(candidate);
+            }
+            
             const answer = await peerConnection.current.createAnswer();
             await peerConnection.current.setLocalDescription(answer);
             
@@ -122,13 +133,22 @@ export const useWebRTC = (roomId: string, userId: string, onChatMessage?: (messa
               await peerConnection.current.setRemoteDescription(
                 new RTCSessionDescription(signal.data)
               );
+              
+              // Process any queued ICE candidates
+              while (iceCandidateQueue.current.length > 0) {
+                const candidate = iceCandidateQueue.current.shift()!;
+                console.log('Adding queued ICE candidate');
+                await peerConnection.current.addIceCandidate(candidate);
+              }
             }
           } else if (signal.type === 'ice-candidate') {
             console.log('Adding ICE candidate...');
+            const candidate = new RTCIceCandidate(signal.data);
             if (peerConnection.current.remoteDescription) {
-              await peerConnection.current.addIceCandidate(
-                new RTCIceCandidate(signal.data)
-              );
+              await peerConnection.current.addIceCandidate(candidate);
+            } else {
+              console.log('Queueing ICE candidate until remote description is set');
+              iceCandidateQueue.current.push(candidate);
             }
           }
         } catch (error) {
@@ -156,16 +176,22 @@ export const useWebRTC = (roomId: string, userId: string, onChatMessage?: (messa
     try {
       console.log('Starting call with peer:', targetPeerId);
       setPeerId(targetPeerId);
+      currentPeerId.current = targetPeerId;
+      
       const stream = await initializeMedia();
+      const pc = createPeerConnection(stream);
+      
+      // Setup signaling and wait for it to be ready
       const channel = setupSignaling();
       
-      // Wait for channel to be ready
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-      
-      const pc = createPeerConnection(stream);
-
-      // Wait a bit more for peer connection to be fully set up
-      await new Promise((resolve) => setTimeout(resolve, 500));
+      await new Promise<void>((resolve) => {
+        const unsubscribe = channel.subscribe((status) => {
+          if (status === 'SUBSCRIBED') {
+            console.log('Channel ready, creating offer');
+            resolve();
+          }
+        });
+      });
 
       // Create and send offer
       const offer = await pc.createOffer();
@@ -192,12 +218,20 @@ export const useWebRTC = (roomId: string, userId: string, onChatMessage?: (messa
     try {
       console.log('Joining call, waiting for peer...');
       const stream = await initializeMedia();
-      setupSignaling();
+      const pc = createPeerConnection(stream);
       
-      // Wait for channel to be ready
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      // Setup signaling and wait for it to be ready
+      const channel = setupSignaling();
       
-      createPeerConnection(stream);
+      await new Promise<void>((resolve) => {
+        const unsubscribe = channel.subscribe((status) => {
+          if (status === 'SUBSCRIBED') {
+            console.log('Channel ready, waiting for offer');
+            resolve();
+          }
+        });
+      });
+      
       console.log('Ready to receive offer');
     } catch (error) {
       console.error('Error joining call:', error);

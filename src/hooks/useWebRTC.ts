@@ -98,14 +98,14 @@ export const useWebRTC = (roomId: string, userId: string, onChatMessage?: (messa
         try {
           if (signal.type === 'offer') {
             console.log('Processing offer...');
-            setPeerId(signal.from); // Track who we're connecting with
+            setPeerId(signal.from);
             await peerConnection.current.setRemoteDescription(
               new RTCSessionDescription(signal.data)
             );
             const answer = await peerConnection.current.createAnswer();
             await peerConnection.current.setLocalDescription(answer);
             
-            console.log('Sending answer...');
+            console.log('Sending answer to:', signal.from);
             channel.send({
               type: 'broadcast',
               event: 'signal',
@@ -118,14 +118,18 @@ export const useWebRTC = (roomId: string, userId: string, onChatMessage?: (messa
             });
           } else if (signal.type === 'answer') {
             console.log('Processing answer...');
-            await peerConnection.current.setRemoteDescription(
-              new RTCSessionDescription(signal.data)
-            );
+            if (peerConnection.current.signalingState !== "stable") {
+              await peerConnection.current.setRemoteDescription(
+                new RTCSessionDescription(signal.data)
+              );
+            }
           } else if (signal.type === 'ice-candidate') {
             console.log('Adding ICE candidate...');
-            await peerConnection.current.addIceCandidate(
-              new RTCIceCandidate(signal.data)
-            );
+            if (peerConnection.current.remoteDescription) {
+              await peerConnection.current.addIceCandidate(
+                new RTCIceCandidate(signal.data)
+              );
+            }
           }
         } catch (error) {
           console.error('Error handling signal:', error);
@@ -139,9 +143,13 @@ export const useWebRTC = (roomId: string, userId: string, onChatMessage?: (messa
       })
       .subscribe((status) => {
         console.log('Channel subscription status:', status);
+        if (status === 'SUBSCRIBED') {
+          console.log('Successfully subscribed to room:', roomId);
+        }
       });
 
     signalChannel.current = channel;
+    return channel;
   }, [roomId, userId, onChatMessage]);
 
   const startCall = useCallback(async (targetPeerId: string) => {
@@ -149,10 +157,14 @@ export const useWebRTC = (roomId: string, userId: string, onChatMessage?: (messa
       console.log('Starting call with peer:', targetPeerId);
       setPeerId(targetPeerId);
       const stream = await initializeMedia();
-      const pc = createPeerConnection(stream);
-      setupSignaling();
-
+      const channel = setupSignaling();
+      
       // Wait for channel to be ready
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      
+      const pc = createPeerConnection(stream);
+
+      // Wait a bit more for peer connection to be fully set up
       await new Promise((resolve) => setTimeout(resolve, 500));
 
       // Create and send offer
@@ -160,7 +172,7 @@ export const useWebRTC = (roomId: string, userId: string, onChatMessage?: (messa
       await pc.setLocalDescription(offer);
 
       console.log('Sending offer to peer:', targetPeerId);
-      signalChannel.current.send({
+      channel.send({
         type: 'broadcast',
         event: 'signal',
         payload: {
@@ -178,9 +190,15 @@ export const useWebRTC = (roomId: string, userId: string, onChatMessage?: (messa
 
   const joinCall = useCallback(async () => {
     try {
+      console.log('Joining call, waiting for peer...');
       const stream = await initializeMedia();
-      createPeerConnection(stream);
       setupSignaling();
+      
+      // Wait for channel to be ready
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      
+      createPeerConnection(stream);
+      console.log('Ready to receive offer');
     } catch (error) {
       console.error('Error joining call:', error);
       throw error;

@@ -24,7 +24,7 @@ const VideoChat = () => {
   const roomId = searchParams.get('room') || '';
   const peerId = searchParams.get('peer') || '';
   
-  const { localStream, remoteStream, isConnected, startCall, endCall, toggleAudio, toggleVideo, sendChatMessage } = 
+  const { localStream, remoteStream, isConnected, startCall, joinCall, endCall, toggleAudio, toggleVideo, sendChatMessage } = 
     useWebRTC(roomId, userId || '', (message) => {
       setMessages(prev => [...prev, { text: message, sender: "them" }]);
     });
@@ -76,20 +76,31 @@ const VideoChat = () => {
       }
     }
 
-    // Start the call with the peer
+    // Determine who initiates based on user ID comparison
+    // The user with the smaller ID always initiates to avoid both users trying to start
+    const shouldInitiate = peerId && user.id < peerId;
+
     try {
-      if (peerId) {
+      if (shouldInitiate) {
+        console.log('I am the initiator, starting call...');
         await startCall(peerId);
         toast({
           title: "Connecting...",
-          description: "Establishing video connection",
+          description: "Initiating video connection",
+        });
+      } else {
+        console.log('I am the responder, waiting for call...');
+        await joinCall();
+        toast({
+          title: "Ready",
+          description: "Waiting for peer to connect",
         });
       }
     } catch (error) {
-      console.error('Error starting call:', error);
+      console.error('Error setting up call:', error);
       toast({
         title: "Connection Error",
-        description: "Failed to start video chat",
+        description: "Failed to setup video chat",
         variant: "destructive",
       });
     }

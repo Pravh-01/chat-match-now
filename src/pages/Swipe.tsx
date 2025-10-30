@@ -22,7 +22,39 @@ const Swipe = () => {
 
   useEffect(() => {
     initializeUser();
-  }, []);
+    
+    // Set up realtime listener for incoming matches
+    const channel = supabase
+      .channel('matches')
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'matches',
+          filter: `user2_id=eq.${userId}`,
+        },
+        async (payload: any) => {
+          if (payload.new.status === 'accepted') {
+            const matchedUserId = payload.new.user1_id;
+            const roomId = [userId, matchedUserId].sort().join('-');
+            
+            toast({
+              title: "New Match!",
+              description: "Someone wants to video chat with you!",
+            });
+            
+            await updateStatus('in_call');
+            navigate(`/video-chat?room=${roomId}&peer=${matchedUserId}`);
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [userId]);
 
   const initializeUser = async () => {
     const { data: { user } } = await supabase.auth.getUser();

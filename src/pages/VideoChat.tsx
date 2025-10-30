@@ -43,24 +43,54 @@ const VideoChat = () => {
 
   useEffect(() => {
     if (localVideoRef.current && localStream) {
+      console.log('=== ATTACHING LOCAL STREAM TO VIDEO ===');
+      console.log('Tracks:', localStream.getTracks().length);
+      localStream.getTracks().forEach(track => {
+        console.log('Local track:', track.kind, track.enabled, track.readyState);
+      });
       localVideoRef.current.srcObject = localStream;
+      console.log('✓ Local video element srcObject set');
     }
   }, [localStream]);
 
   useEffect(() => {
     if (remoteVideoRef.current && remoteStream) {
+      console.log('=== ATTACHING REMOTE STREAM TO VIDEO ===');
+      console.log('Tracks:', remoteStream.getTracks().length);
+      remoteStream.getTracks().forEach(track => {
+        console.log('Remote track:', track.kind, track.enabled, track.readyState);
+      });
       remoteVideoRef.current.srcObject = remoteStream;
+      console.log('✓ Remote video element srcObject set');
+      
+      // Additional check
+      setTimeout(() => {
+        if (remoteVideoRef.current) {
+          console.log('Remote video readyState:', remoteVideoRef.current.readyState);
+          console.log('Remote video networkState:', remoteVideoRef.current.networkState);
+          console.log('Remote video paused:', remoteVideoRef.current.paused);
+        }
+      }, 1000);
     }
   }, [remoteStream]);
 
   const initializeChat = async () => {
+    console.log('========================================');
+    console.log('=== INITIALIZING VIDEO CHAT ===');
+    console.log('========================================');
+    
     const { data: { user } } = await supabase.auth.getUser();
     
     if (!user) {
+      console.log('❌ No user found, redirecting to auth');
       navigate('/auth');
       return;
     }
 
+    console.log('User ID:', user.id);
+    console.log('Peer ID:', peerId);
+    console.log('Room ID:', roomId);
+    
     setUserId(user.id);
 
     // Get peer profile
@@ -72,6 +102,7 @@ const VideoChat = () => {
         .maybeSingle();
 
       if (profile) {
+        console.log('Peer name:', profile.display_name);
         setPeerName(profile.display_name);
       }
     }
@@ -80,16 +111,22 @@ const VideoChat = () => {
     // The user with the smaller ID always initiates to avoid both users trying to start
     const shouldInitiate = peerId && user.id < peerId;
 
+    console.log('=== ROLE DETERMINATION ===');
+    console.log('Should I initiate?', shouldInitiate);
+    console.log('My ID:', user.id);
+    console.log('Peer ID:', peerId);
+    console.log('Comparison:', user.id, '<', peerId, '=', shouldInitiate);
+
     try {
       if (shouldInitiate) {
-        console.log('I am the initiator, starting call...');
+        console.log('✓ I am the INITIATOR');
         await startCall(peerId);
         toast({
           title: "Connecting...",
           description: "Initiating video connection",
         });
       } else {
-        console.log('I am the responder, waiting for call...');
+        console.log('✓ I am the ANSWERER');
         await joinCall();
         toast({
           title: "Ready",
@@ -97,13 +134,15 @@ const VideoChat = () => {
         });
       }
     } catch (error) {
-      console.error('Error setting up call:', error);
+      console.error('❌ ERROR SETTING UP CALL:', error);
       toast({
         title: "Connection Error",
         description: "Failed to setup video chat",
         variant: "destructive",
       });
     }
+    
+    console.log('========================================');
   };
 
   const handleSendMessage = (e: React.FormEvent) => {
